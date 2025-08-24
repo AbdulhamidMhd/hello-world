@@ -1,0 +1,164 @@
+-- Users & Roles
+email TEXT UNIQUE NOT NULL,
+password_hash TEXT NOT NULL,
+verified BOOLEAN DEFAULT FALSE,
+role TEXT NOT NULL CHECK (role IN ('clinic_admin','clinic_member','expert','superadmin')),
+created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- Clinics (institutions)
+CREATE TABLE clinics (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+name TEXT NOT NULL,
+timezone TEXT DEFAULT 'Africa/Addis_Ababa',
+created_by UUID REFERENCES users(id) ON DELETE SET NULL
+);
+
+
+CREATE TABLE clinic_members (
+clinic_id UUID REFERENCES clinics(id) ON DELETE CASCADE,
+user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+role TEXT CHECK (role IN ('admin','staff')),
+PRIMARY KEY (clinic_id, user_id)
+);
+
+
+-- Experts profile & verification
+CREATE TABLE experts (
+user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+full_name TEXT NOT NULL,
+specialty TEXT NOT NULL,
+qualifications TEXT[],
+employer TEXT,
+rate_per_min_cents INT NOT NULL,
+languages TEXT[],
+bio TEXT
+);
+
+
+CREATE TABLE expert_verifications (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+license_number TEXT,
+license_issuer TEXT,
+license_file_url TEXT,
+certifications TEXT[],
+status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected')),
+reviewed_by UUID REFERENCES users(id),
+reviewed_at TIMESTAMPTZ
+);
+
+
+CREATE TABLE availability_slots (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+expert_id UUID REFERENCES users(id) ON DELETE CASCADE,
+starts_at TIMESTAMPTZ NOT NULL,
+ends_at TIMESTAMPTZ NOT NULL,
+is_recurring BOOLEAN DEFAULT FALSE,
+rrule TEXT
+);
+
+
+-- Consultations & messaging
+CREATE TABLE consultations (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+clinic_id UUID REFERENCES clinics(id) ON DELETE SET NULL,
+requested_by UUID REFERENCES users(id) ON DELETE SET NULL,
+expert_id UUID REFERENCES users(id) ON DELETE SET NULL,
+status TEXT CHECK (status IN ('requested','accepted','in_progress','completed','cancelled')),
+channel TEXT CHECK (channel IN ('chat','voice','video')),
+started_at TIMESTAMPTZ,
+ended_at TIMESTAMPTZ,
+cost_cents INT DEFAULT 0
+);
+
+
+CREATE TABLE messages (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+consultation_id UUID REFERENCES consultations(id) ON DELETE CASCADE,
+sender_id UUID REFERENCES users(id) ON DELETE CASCADE,
+type TEXT CHECK (type IN ('text','file','system')),
+body TEXT,
+created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+CREATE TABLE attachments (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+file_url TEXT NOT NULL,
+file_name TEXT,
+mime_type TEXT,
+size_bytes BIGINT
+);
+
+
+CREATE TABLE consultation_reports (
+consultation_id UUID PRIMARY KEY REFERENCES consultations(id) ON DELETE CASCADE,
+summary TEXT,
+recommendations TEXT,
+created_by UUID REFERENCES users(id),
+created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- Ratings & feedback
+CREATE TABLE ratings (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+consultation_id UUID REFERENCES consultations(id) ON DELETE CASCADE,
+rater_id UUID REFERENCES users(id) ON DELETE SET NULL,
+expert_id UUID REFERENCES users(id) ON DELETE SET NULL,
+score INT CHECK (score BETWEEN 1 AND 5),
+comment TEXT,
+created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- Billing & payouts
+CREATE TABLE wallets (
+owner_type TEXT CHECK (owner_type IN ('clinic','expert')),
+owner_id UUID,
+balance_cents BIGINT DEFAULT 0,
+PRIMARY KEY (owner_type, owner_id)
+);
+
+
+CREATE TABLE transactions (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+wallet_owner_type TEXT,
+wallet_owner_id UUID,
+amount_cents BIGINT, -- positive credit, negative debit
+kind TEXT CHECK (kind IN ('purchase_credits','consult_debit','expert_earning','payout')),
+meta JSONB,
+created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- API keys & audit
+CREATE TABLE api_keys (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+name TEXT,
+key_hash TEXT NOT NULL,
+scope TEXT[],
+created_by UUID REFERENCES users(id),
+created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+CREATE TABLE audit_logs (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+actor_id UUID REFERENCES users(id),
+action TEXT,
+target TEXT,
+meta JSONB,
+created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- Email verification tokens (hashed)
+CREATE TABLE email_tokens (
+user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+token_hash TEXT NOT NULL,
+expires_at TIMESTAMPTZ NOT NULL
+);
